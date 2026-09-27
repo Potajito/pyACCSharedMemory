@@ -4,10 +4,10 @@ Test & read data from ACC's Broadcasting Network Protocol (UDP)
 
 import logging
 import sys
-from time import perf_counter, sleep
+from time import monotonic, sleep
 
 sys.path.append(__file__.split("pyACCSharedMemory")[0])
-from pyACCSharedMemory import acc_enum, acc_udp
+from pyACCSharedMemory import acc_data, acc_enum, acc_udp
 
 
 def test_udp():
@@ -21,6 +21,7 @@ def test_udp():
     udp_host = "127.0.0.1"
     udp_port = 9000
     update_interval = 0.25
+    client_name = "tester"
 
     dataset = acc_udp.UDPBroadcastOutput()
     print("Host/Port:", udp_host, udp_port)
@@ -29,18 +30,25 @@ def test_udp():
 
     # Set connection message
     connection_message = acc_udp.set_register_message(
-        display_name="tester",
+        display_name=client_name,
         connection_password="",
         realtime_update_interval=update_interval * 1000,
         command_password="read-only",
     )
+
+    # Clean any obsolete clients first
+    if acc_udp.clean_obsolete_client(
+        "127.0.0.1", 9000, client_name, acc_data.ACCConstants.LOG_PATH
+    ):
+        sleep(1.0)
 
     with acc_udp.acc_udp_connect(
         udp_host="127.0.0.1",
         udp_port=9000,
         udp_output=dataset,
         connection_message=connection_message,
-        connection_timeout=1,
+        connection_timeout=5,
+        blocking=True,
     ) as sock:
         connection_id = dataset.registration.connectionId
         print("Client ID:", connection_id)
@@ -52,6 +60,7 @@ def test_udp():
         # Set entry list message, 10=outbound_type.REQUEST_ENTRY_LIST
         sync_entry_message = acc_udp.set_message(acc_udp.OutboundMessageTypes.REQUEST_ENTRY_LIST, connection_id)
         # Start update loop
+        last_timestamp = 0.0
         last_car_entry_count = 0
         buffer_size = acc_udp.BroadcastingNetworkProtocol.BUFFER_SIZE
 
@@ -60,9 +69,11 @@ def test_udp():
         while max_updates > 0:
             # Sync entry list
             if dataset.entryList.syncEntryList:
-                sock.send(sync_entry_message)
-                dataset.entryList.syncEntryList = False
-                dataset.entryList.lastEntrylistRequest = perf_counter()
+                current_timestamp = monotonic()
+                if current_timestamp - last_timestamp > 5:
+                    last_timestamp = current_timestamp
+                    sock.send(sync_entry_message)
+                    dataset.entryList.syncEntryList = False
             # Parse response data
             message_type = acc_udp.parse_udp_stream(sock.recv(buffer_size), dataset)
             # Update for number of loops equal to carEntryCount, then wait for update_interval

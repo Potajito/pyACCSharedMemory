@@ -9,10 +9,11 @@ from __future__ import annotations
 import ctypes
 import io
 import logging
+import os
 import socket
 import struct
+import threading
 from contextlib import contextmanager
-from time import perf_counter
 from typing import Callable, Sequence
 
 from ._common import _t, get_root_logger_name, typedstruct
@@ -226,7 +227,6 @@ class UDPEntryList(ctypes.Structure):
         connectionId: connection ID
         carEntryCount: car entry count
         entryListCars: entry list cars
-        lastEntrylistRequest: last entry list request
         syncEntryList: whether to sync entry list
     """
 
@@ -235,7 +235,6 @@ class UDPEntryList(ctypes.Structure):
     connectionId: int = _t(ctypes.c_int32)
     carEntryCount: int = _t(ctypes.c_int16)
     entryListCars: list[UDPCarInfo] = _t(UDPCarInfo * BroadcastingNetworkProtocol.MAX_MAPPED_VEHICLES)
-    lastEntrylistRequest: float = _t(ctypes.c_double)
     syncEntryList: bool = _t(ctypes.c_bool)
 
 
@@ -356,8 +355,6 @@ def set_register_message(
         connection_password: connection password (optional) matches broadcasting.json 'connectionPassword' value; wrong password will result connection failure.
         command_password: command password (optional) matches broadcasting.json 'command_password' value; wrong password will grant read-only access.
         realtime_update_interval: UDP data realtime update interval (milliseconds).
-
-    Note: setting update interval lower than 200ms may cause further connection failure if client closed unexpectedly without unregister client ID first.
     """
     message = bytearray()
     message.extend(register_command_application.to_bytes(1, "little"))
@@ -472,10 +469,7 @@ def read_realtime_car_update(
             and car_info.currentLap.laptimeMS < 1000  # < 1 second of new lap
         )
     ):
-        current_timestamp = perf_counter()
-        if current_timestamp - output.lastEntrylistRequest > 1:  # one second cooldown
-            output.lastEntrylistRequest = current_timestamp
-            output.syncEntryList = True
+        output.syncEntryList = True
 
 
 def read_entry_list(stream_reader: Callable[[int], bytes], output: UDPEntryList):
@@ -563,7 +557,9 @@ def acc_udp_connect(
     udp_port: int,
     udp_output: UDPBroadcastOutput,
     connection_message: bytes | bytearray = b"",
-    connection_timeout: float = 1.0,
+    connection_timeout: float = 60.0,
+    blocking: bool = True,
+    event: threading.Event | None = None,
     callback_function: Callable[[int], None] | None = None,
 ):
     """Connect client to ACC UDP API
@@ -573,7 +569,8 @@ def acc_udp_connect(
         udp_port: UDP port matches broadcasting.json 'updListenerPort' value.
         udp_output: UDP broadcast output data.
         connection_message: set register connection message, see 'set_register_message' function.
-        connection_timeout: UDP connection timeout (seconds).
+        connection_timeout: UDP connection timeout, default 60 seconds.
+        blocking: set blocking or non-blocking mode.
     """
     udp_output.registration.hostUDP = udp_host
     udp_output.registration.portUDP = udp_port
@@ -582,7 +579,10 @@ def acc_udp_connect(
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         # Connect to broadcasting server
-        sock.settimeout(connection_timeout)
+        if blocking or event is None:
+            sock.settimeout(connection_timeout)
+        else:
+            sock.setblocking(False)
         sock.connect(server_address)
 
         # Send register message
@@ -590,7 +590,19 @@ def acc_udp_connect(
         sock.send(connection_message)
 
         # Get response
-        response = sock.recv(128)
+        if blocking:
+            response = sock.recv(512)
+        else:
+            while not event.wait(0.5) and connection_timeout > 0:
+                try:
+                    response = sock.recv(512)
+                    break
+                except BlockingIOError:
+                    connection_timeout -= 0.5
+            else:
+                logger.error("UDP: ERROR: connection timed out")
+                raise TimeoutError
+
         parse_udp_stream(response, udp_output)
 
         # Update connection id
@@ -616,7 +628,7 @@ def acc_udp_connect(
             # Disconnect current client, 9=OutboundMessageTypes.UNREGISTER_COMMAND_APPLICATION
             sock.send(set_message(9, connection_id))
             logger.info("UDP: DISCONNECTING: ACC Broadcasting Protocol (v%s)", BroadcastingNetworkProtocol.BROADCASTING_PROTOCOL_VERSION)
-            logger.info("UDP: DISCONNECTED: CLIENT: #%s (%s:%s)", connection_id, udp_host, udp_port)
+            logger.info("UDP: CLIENT UNREGISTERED: #%s (%s:%s)", connection_id, udp_host, udp_port)
         sock.close()
         # Run callback function
         if callable(callback_function):
@@ -647,4 +659,78 @@ def acc_udp_disconnect(
         logger.info("UDP: REQUESTED: UNREGISTER_COMMAND_APPLICATION")
         for client_id in set(connection_id):
             sock.send(set_message(9, client_id))
-            logger.info("UDP: DISCONNECTING CLIENT: #%s (%s:%s)", client_id, udp_host, udp_port)
+            logger.info("UDP: CLIENT UNREGISTERED: #%s (%s:%s)", client_id, udp_host, udp_port)
+
+
+def get_client_id(line: str) -> int:
+    """Get client id from game log"""
+    # Example log line:
+    # [2026.09.26-12.41.30:243][534]LogKsRacing: BroadcastingClient: Added new client 1 for 'tester' with command mode 0 and realtime interval 250
+    pos_beg = line.find("client")
+    if pos_beg > 0:
+        pos_beg += 6
+        pos_end = line.find("for")
+        value = line[pos_beg:pos_end].strip()
+        if value.isdigit():
+            return int(value)
+    return -1
+
+
+def get_purged_id(line: str) -> int:
+    """Get purged client id from game log"""
+    # Example log line:
+    # [2026.09.26-12.42.08:790][899]LogKsPhysics: Purged broadcasting clients for connection_id 1, now 0 clients connected
+    pos_beg = line.find("connection_id")
+    if pos_beg > 0:
+        pos_beg += 13
+        pos_end = line.find(",")
+        value = line[pos_beg:pos_end].strip()
+        if value.isdigit():
+            return int(value)
+    return -1
+
+
+def clean_obsolete_client(udp_host: str, udp_port: int, client_name: str, log_path: str) -> bool:
+    """Clean obsolete client from specified client name (usually due to unexpected closing)
+
+    Args:
+        udp_host: UDP host name used for specified client name.
+        udp_port: UDP port used for specified client name.
+        client_name: display name as set via 'set_register_message' function during previous connections.
+        log_path: ACC game log path. See ACCConstants.LOG_PATH in acc_data.py.
+
+    Returns:
+        True: if any obsolete clients found and cleaned.
+        False: if no obsolete clients found, or log not found.
+    """
+    if not os.path.exists(log_path):
+        logger.info("UDP: ACC log not found: %s", log_path)
+        return False
+
+    client_name = f"'{client_name}'"  # wrap name in '' to detect empty client name
+    connected_id_set = set()  # unique client ID list
+    purged_id_set = set()  # unique purged client ID list
+    last_connected_id = -1
+
+    with open(log_path, "r", encoding="utf-8") as log:
+        for line in log:
+            # Only record from specified client name
+            if "Added new client" in line and client_name in line:
+                found_id = get_client_id(line)
+                # Game recounts ID from 1 in new session, so reset
+                if last_connected_id > found_id:
+                    connected_id_set.clear()
+                    purged_id_set.clear()
+                last_connected_id = found_id
+                connected_id_set.add(found_id)
+            elif "Purged broadcasting clients" in line:
+                purged_id_set.add(get_purged_id(line))
+
+    # Get obsolete ID list under this client name
+    obsolete_id_set = connected_id_set.difference(purged_id_set)
+    if not obsolete_id_set:
+        return False
+    # Unregister & disconnect obsolete ID
+    logger.info("UDP: Found obsolete client: #%s", ",".join(str(n) for n in obsolete_id_set))
+    acc_udp_disconnect(udp_host, udp_port, obsolete_id_set)
+    return True

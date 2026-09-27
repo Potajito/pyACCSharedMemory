@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ctypes
 import mmap
+import os
 
 from ._common import _t, typedstruct
 
@@ -28,6 +29,8 @@ class ACCConstants:
 
     MAX_MAPPED_VEHICLES: int = 60
     INVALID_CAR_INDEX: int = -1
+
+    LOG_PATH: str = f"{os.getenv('LOCALAPPDATA', '.')}\\AC2\\Saved\\Logs\\AC2.log"
 
 
 @typedstruct(pack=4)
