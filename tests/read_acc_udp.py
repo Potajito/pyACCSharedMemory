@@ -92,8 +92,7 @@ def test_udp():
         # Print data
         print("track name:", dataset.trackData.trackName.decode())
         print("track length:", dataset.trackData.trackMeters)
-        for i in range(car_entry_count):
-            car_info = dataset.entryList.entryListCars[i]
+        for car_info in dataset.entryList.entryListCars.values():
             car_type = car_info.carModelType
             car_model = acc_enum.ACC_CAR_MODEL_ID(car_type)
             car_place = car_info.position
@@ -105,6 +104,7 @@ def test_udp():
                 " driver:", f"{driver_name:<22}",
                 " class:", acc_enum.ACC_CAR_CLASS(car_model),
                 " model:", acc_enum.ACC_CAR_MODEL(car_model),
+                " car id:", car_info.carId,
             )
 
 

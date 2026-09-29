@@ -13,6 +13,7 @@ import os
 import socket
 import struct
 import threading
+from collections import defaultdict
 from contextlib import contextmanager
 from typing import Callable, Sequence
 
@@ -54,7 +55,6 @@ class BroadcastingNetworkProtocol:
 
     BROADCASTING_PROTOCOL_VERSION = 4
     BUFFER_SIZE = 4096  # 2 ** 14
-    MAX_MAPPED_VEHICLES: int = 60
 
 
 # UDP API data
@@ -85,7 +85,7 @@ class UDPLapInfo(ctypes.Structure):
 
     Attributes:
         laptimeMS: lap time in milliseconds
-        carIndex: car index
+        carId: car ID
         driverIndex: driver index
         splitCount: number of lap time records
         isInvalid: is invalid lap time
@@ -98,7 +98,7 @@ class UDPLapInfo(ctypes.Structure):
     __slots__ = ()
 
     laptimeMS: int = _t(ctypes.c_int32)
-    carIndex: int = _t(ctypes.c_int16)
+    carId: int = _t(ctypes.c_int16)
     driverIndex: int = _t(ctypes.c_int16)
     splitCount: int = _t(ctypes.c_byte)
     # splits: list[int] = _t(ctypes.c_int32 * 1000)  # (unmapped) list of lap time records
@@ -114,13 +114,13 @@ class UDPCarInfo(ctypes.Structure):
     """Car info
 
     Attributes:
-        entryIndex: car index from ENTRY_LIST_CAR
-        carIndex: car index from REALTIME_CAR_UPDATE
+        entryId: car ID from ENTRY_LIST_CAR, which matches carId from sharedmemory API
+        carId: car ID from REALTIME_CAR_UPDATE, which matches carId from sharedmemory API
         carModelType: car model type
         teamName: team name
         raceNumber: race number
         cupCategory: Cup: Overall/Pro = 0, ProAm = 1, Am = 2, Silver = 3, National = 4, see CupCategory enum
-        currentDriverIndex: current driver index
+        currentDriverIndex: current driver index (in team)
         currentDriverInfo: current driver info from this car (team)
         driverCount: number of drivers in team for this car (shared with REALTIME_CAR_UPDATE)
         nationality: nationality
@@ -144,8 +144,8 @@ class UDPCarInfo(ctypes.Structure):
 
     __slots__ = ()
 
-    entryIndex: int = _t(ctypes.c_int16)
-    carIndex: int = _t(ctypes.c_int16)
+    entryId: int = _t(ctypes.c_int16)
+    carId: int = _t(ctypes.c_int16)
     carModelType: int = _t(ctypes.c_byte)
     teamName: bytes = _t(ctypes.c_char * 64)
     raceNumber: int = _t(ctypes.c_int32)
@@ -224,17 +224,17 @@ class UDPEntryList(ctypes.Structure):
     """ENTRY_LIST = 4, ENTRY_LIST_CAR = 6
 
     Attributes:
+        entryListCars: car info dataset stored in dict (key=carId), use entryListCars.clear() to cleanup data after session ends
         connectionId: connection ID
         carEntryCount: car entry count
-        entryListCars: entry list cars
         syncEntryList: whether to sync entry list
     """
 
     __slots__ = ()
 
+    entryListCars = defaultdict(UDPCarInfo)
     connectionId: int = _t(ctypes.c_int32)
     carEntryCount: int = _t(ctypes.c_int16)
-    entryListCars: list[UDPCarInfo] = _t(UDPCarInfo * BroadcastingNetworkProtocol.MAX_MAPPED_VEHICLES)
     syncEntryList: bool = _t(ctypes.c_bool)
 
 
@@ -249,7 +249,7 @@ class UDPSessionInfo(ctypes.Structure):
         sessionPhase: session phase, see SessionPhase enum
         sessionTime: session time
         sessionEndTime: session end time
-        focusedCarIndex: focused car index
+        focusedCarId: focused car ID
         activeCameraSet: active camera set name
         activeCamera: active camera name
         currentHudPage: current hud page
@@ -273,7 +273,7 @@ class UDPSessionInfo(ctypes.Structure):
     sessionPhase: int = _t(ctypes.c_byte)
     sessionTime: float = _t(ctypes.c_float)
     sessionEndTime: float = _t(ctypes.c_float)
-    focusedCarIndex: int = _t(ctypes.c_int32)
+    focusedCarId: int = _t(ctypes.c_int32)
     activeCameraSet: bytes = _t(ctypes.c_char * 32)
     activeCamera: bytes = _t(ctypes.c_char * 32)
     currentHudPage: bytes = _t(ctypes.c_char * 32)
@@ -384,7 +384,7 @@ def read_registration_result(stream_reader: Callable[[int], bytes], output: UDPR
 def read_lap_info(stream_reader: Callable[[int], bytes], output: UDPLapInfo):
     """Read stream - lap info"""
     output.laptimeMS = bytes_to_int(stream_reader(4))  # Int32
-    output.carIndex = bytes_to_int(stream_reader(2))  # UInt16
+    output.carId = bytes_to_int(stream_reader(2))  # UInt16
     output.driverIndex = bytes_to_int(stream_reader(2))  # UInt16
     output.splitCount = bytes_to_int(stream_reader(1))  # byte
     stream_reader(output.splitCount * 4)  # skip lap history (save memory)
@@ -410,7 +410,7 @@ def read_realtime_update(stream_reader: Callable[[int], bytes], output: UDPSessi
     output.sessionPhase = bytes_to_int(stream_reader(1))  # byte
     output.sessionTime = bytes_to_float(stream_reader(4))  # float
     output.sessionEndTime = bytes_to_float(stream_reader(4))  # float
-    output.focusedCarIndex = bytes_to_int(stream_reader(4))  # Int32
+    output.focusedCarId = bytes_to_int(stream_reader(4))  # Int32
     output.activeCameraSet = read_string(stream_reader, 2)  # bytestring
     output.activeCamera = read_string(stream_reader, 2)  # bytestring
     output.currentHudPage = read_string(stream_reader, 2)  # bytestring
@@ -427,20 +427,14 @@ def read_realtime_update(stream_reader: Callable[[int], bytes], output: UDPSessi
     read_lap_info(stream_reader, output.bestSessionLap)
 
 
-def read_realtime_car_update(
-    stream_reader: Callable[[int], bytes],
-    output: UDPEntryList,
-    max_vehicles: int = BroadcastingNetworkProtocol.MAX_MAPPED_VEHICLES,
-):
+def read_realtime_car_update(stream_reader: Callable[[int], bytes], output: UDPEntryList):
     """Read stream - realtime car update"""
     car_id = bytes_to_int(stream_reader(2))  # UInt16
     driver_index = bytes_to_int(stream_reader(2))  # UInt16
     driver_count = bytes_to_int(stream_reader(1))  # byte
-    if car_id >= max_vehicles:
-        return
     car_info = output.entryListCars[car_id]
     # Update realtime car info
-    car_info.carIndex = car_id
+    car_info.carId = car_id
     car_info.driverIndex = driver_index
     car_info.driverCount = driver_count
     car_info.gear = bytes_to_int(stream_reader(1)) - 2  # byte
@@ -460,7 +454,7 @@ def read_realtime_car_update(
     read_lap_info(stream_reader, car_info.currentLap)
     # Check if entry list outdated
     if (
-        car_info.entryIndex != car_id
+        car_info.entryId != car_id
         or car_info.driverCount != driver_count
         # Driver index is only sync after the first lap (after out lap)
         # Only send request at beginning of new lap
@@ -478,17 +472,11 @@ def read_entry_list(stream_reader: Callable[[int], bytes], output: UDPEntryList)
     output.carEntryCount = bytes_to_int(stream_reader(2))  # UInt16
 
 
-def read_entry_list_car(
-    stream_reader: Callable[[int], bytes],
-    output: UDPEntryList,
-    max_vehicles: int = BroadcastingNetworkProtocol.MAX_MAPPED_VEHICLES,
-):
+def read_entry_list_car(stream_reader: Callable[[int], bytes], output: UDPEntryList):
     """Read stream - entry list car info"""
     car_id = bytes_to_int(stream_reader(2))  # UInt16
-    if car_id >= max_vehicles:
-        return
     car_info = output.entryListCars[car_id]
-    car_info.entryIndex = car_id
+    car_info.entryId = car_id
     car_info.carModelType = bytes_to_int(stream_reader(1))  # byte
     car_info.teamName = read_string(stream_reader, 2)  # bytestring
     car_info.raceNumber = bytes_to_int(stream_reader(4))  # Int32
