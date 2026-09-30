@@ -142,6 +142,7 @@ class UDPCarInfo(ctypes.Structure):
         currentLap: current lap time data
         inPitLane: whether in pit lane
         inGarage: whether in garage stall
+        finished: whether finished final lap
         eventType: car event type, 0=none, 1=green flag, 2=session over, 3=penalty message, 4=accident, 5=lap completed, 6=Best Session Lap, 7=best personal lap, see BroadcastingCarEventType enum
         eventMessage: car event message text
         eventTimestamp: car event timestamp
@@ -182,8 +183,10 @@ class UDPCarInfo(ctypes.Structure):
     bestSessionLap: UDPLapInfo = _t(UDPLapInfo)
     lastLap: UDPLapInfo = _t(UDPLapInfo)
     currentLap: UDPLapInfo = _t(UDPLapInfo)
+    # Extra
     inPitLane: bool = _t(ctypes.c_bool)
     inGarage: bool = _t(ctypes.c_bool)
+    finished: bool = _t(ctypes.c_bool)
     # BROADCASTING_EVENT = 7
     eventType: int = _t(ctypes.c_byte)
     eventMessage: bytes = _t(ctypes.c_char * 64)
@@ -247,6 +250,7 @@ class UDPEntryList(ctypes.Structure):
         entryListCars: car info dataset stored in dict (key=carId), use entryListCars.clear() to cleanup data after session ends
         connectionId: connection ID
         carEntryCount: car entry count
+        leaderFinished: whether leader finished (crossed line)
         syncEntryList: whether to sync entry list
     """
 
@@ -255,6 +259,7 @@ class UDPEntryList(ctypes.Structure):
     entryListCars = defaultdict(UDPCarInfo)
     connectionId: int = _t(ctypes.c_int32)
     carEntryCount: int = _t(ctypes.c_int16)
+    leaderFinished: bool = _t(ctypes.c_bool)
     syncEntryList: bool = _t(ctypes.c_bool)
 
 
@@ -267,8 +272,8 @@ class UDPSessionInfo(ctypes.Structure):
         sessionIndex: session index
         sessionType: session type, see RaceSessionType enum
         sessionPhase: session phase, see SessionPhase enum
-        sessionTime: session time
-        sessionEndTime: session end time
+        sessionTime: session time (elapsed) (ms)
+        sessionEndTime: session end (remaining) time (ms)
         focusedCarId: focused car ID
         activeCameraSet: active camera set name
         activeCamera: active camera name
@@ -447,7 +452,7 @@ def read_realtime_update(stream_reader: Callable[[int], bytes], output: UDPSessi
     read_lap_info(stream_reader, output.bestSessionLap)
 
 
-def read_realtime_car_update(stream_reader: Callable[[int], bytes], output: UDPEntryList):
+def read_realtime_car_update(stream_reader: Callable[[int], bytes], output: UDPEntryList, session_ended: bool):
     """Read stream - realtime car update"""
     car_id = bytes_to_int(stream_reader(2))  # UInt16
     driver_index = bytes_to_int(stream_reader(2))  # UInt16
@@ -477,7 +482,7 @@ def read_realtime_car_update(stream_reader: Callable[[int], bytes], output: UDPE
     car_info.cupPosition = bytes_to_int(stream_reader(2))  # UInt16
     car_info.trackPosition = bytes_to_int(stream_reader(2))  # UInt16
     car_info.splinePosition = bytes_to_float(stream_reader(4))  # float
-    car_info.completedLaps = bytes_to_int(stream_reader(2))  # UInt16
+    completed_laps = bytes_to_int(stream_reader(2))  # UInt16
     car_info.deltaBest = bytes_to_int(stream_reader(4))  # Int32
 
     lap_invalid = car_info.currentLap.isInvalid
@@ -487,6 +492,17 @@ def read_realtime_car_update(stream_reader: Callable[[int], bytes], output: UDPE
 
     car_info.inPitLane = (car_location == 2)
     car_info.inGarage = (car_location == 2 and car_speedKmh <= 0 and car_info.currentLap.lapType != 2)
+
+    # Finish check
+    if session_ended:
+        # check if leader finished final lap
+        if not output.leaderFinished and car_info.position == 1 and completed_laps - car_info.completedLaps == 1:
+            output.leaderFinished = True
+            car_info.finished = True
+        # Check if other driver finished after leader crossed line
+        if not car_info.finished and completed_laps - car_info.completedLaps == 1:
+            car_info.finished = True
+    car_info.completedLaps = completed_laps
 
     # Count track cuts
     if lap_invalid != car_info.currentLap.isInvalid == True:
@@ -579,7 +595,7 @@ def parse_udp_stream(response: bytes, output: UDPBroadcastOutput) -> int:
             message_type = bytes_to_int(stream_reader(1))
             # Ordered by most frequent accessed message type
             if message_type == 3:  # InboundMessageTypes.REALTIME_CAR_UPDATE
-                read_realtime_car_update(stream_reader, output.entryList)
+                read_realtime_car_update(stream_reader, output.entryList, output.sessionInfo.sessionPhase >= 6)
             elif message_type == 2:  # InboundMessageTypes.REALTIME_UPDATE
                 read_realtime_update(stream_reader, output.sessionInfo)
             elif message_type == 6:  # InboundMessageTypes.ENTRY_LIST_CAR
