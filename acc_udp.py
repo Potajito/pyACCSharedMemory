@@ -92,7 +92,7 @@ class UDPLapInfo(ctypes.Structure):
         isValidForBest: is valid for best lap time
         isOutlap: is out lap
         isInlap: is in lap
-        lapType: lap type, see LapType enum
+        lapType: lap type, 0=error, 1=out lap, 2=regular, 3=in lap, see LapType enum
     """
 
     __slots__ = ()
@@ -140,6 +140,15 @@ class UDPCarInfo(ctypes.Structure):
         bestSessionLap: session best lap data
         lastLap: last lap time data
         currentLap: current lap time data
+        inPitLane: whether in pit lane
+        inGarage: whether in garage stall
+        eventType: car event type, 0=none, 1=green flag, 2=session over, 3=penalty message, 4=accident, 5=lap completed, 6=Best Session Lap, 7=best personal lap, see BroadcastingCarEventType enum
+        eventMessage: car event message text
+        eventTimestamp: car event timestamp
+        lastPitState: last in pit lane state (carLocation == 2)
+        trackCuts: number of track cuts (unofficial)
+        accidents: number of accidents (eventType == 4)
+        pitStops: number of pit stops
     """
 
     __slots__ = ()
@@ -173,6 +182,17 @@ class UDPCarInfo(ctypes.Structure):
     bestSessionLap: UDPLapInfo = _t(UDPLapInfo)
     lastLap: UDPLapInfo = _t(UDPLapInfo)
     currentLap: UDPLapInfo = _t(UDPLapInfo)
+    inPitLane: bool = _t(ctypes.c_bool)
+    inGarage: bool = _t(ctypes.c_bool)
+    # BROADCASTING_EVENT = 7
+    eventType: int = _t(ctypes.c_byte)
+    eventMessage: bytes = _t(ctypes.c_char * 64)
+    eventTimestamp: int = _t(ctypes.c_int32)
+    # Counter
+    lastPitState: int = _t(ctypes.c_byte)
+    trackCuts: int = _t(ctypes.c_int16)
+    accidents: int = _t(ctypes.c_int16)
+    pitStops: int = _t(ctypes.c_int16)
 
 
 @typedstruct(pack=4)
@@ -437,21 +457,41 @@ def read_realtime_car_update(stream_reader: Callable[[int], bytes], output: UDPE
     car_info.carId = car_id
     car_info.driverIndex = driver_index
     car_info.driverCount = driver_count
-    car_info.gear = bytes_to_int(stream_reader(1)) - 2  # byte
+    car_info.gear = bytes_to_int(stream_reader(1)) - 1  # byte
     car_info.worldPosX = bytes_to_float(stream_reader(4))  # float
     car_info.worldPosY = bytes_to_float(stream_reader(4))  # float
     car_info.yaw = bytes_to_float(stream_reader(4))  # float
-    car_info.carLocation = bytes_to_int(stream_reader(1))  # byte
-    car_info.speedKmh = bytes_to_int(stream_reader(2))  # UInt16
+
+    # Count pit stops
+    car_location = bytes_to_int(stream_reader(1))  # byte
+    car_speedKmh = bytes_to_int(stream_reader(2))  # UInt16
+    if 2 != car_location:
+        car_info.lastPitState = car_location
+    elif 1 > car_speedKmh and car_location != car_info.lastPitState != 0:
+        car_info.pitStops += 1
+        car_info.lastPitState = car_location
+
+    car_info.carLocation = car_location
+    car_info.speedKmh = car_speedKmh
     car_info.position = bytes_to_int(stream_reader(2))  # UInt16
     car_info.cupPosition = bytes_to_int(stream_reader(2))  # UInt16
     car_info.trackPosition = bytes_to_int(stream_reader(2))  # UInt16
     car_info.splinePosition = bytes_to_float(stream_reader(4))  # float
     car_info.completedLaps = bytes_to_int(stream_reader(2))  # UInt16
     car_info.deltaBest = bytes_to_int(stream_reader(4))  # Int32
+
+    lap_invalid = car_info.currentLap.isInvalid
     read_lap_info(stream_reader, car_info.bestSessionLap)
     read_lap_info(stream_reader, car_info.lastLap)
     read_lap_info(stream_reader, car_info.currentLap)
+
+    car_info.inPitLane = (car_location == 2)
+    car_info.inGarage = (car_location == 2 and car_speedKmh <= 0 and car_info.currentLap.lapType != 2)
+
+    # Count track cuts
+    if lap_invalid != car_info.currentLap.isInvalid == True:
+        car_info.trackCuts += 1
+
     # Check if entry list outdated
     if (
         car_info.entryId != car_id
@@ -510,6 +550,23 @@ def read_track_data(stream_reader: Callable[[int], bytes], output: UDPTrackData)
     output.trackMeters = bytes_to_int(stream_reader(4))  # Int32
 
 
+def read_car_event(stream_reader: Callable[[int], bytes], output: UDPEntryList):
+    """Read stream - car event"""
+    event_type = bytes_to_int(stream_reader(1))  # byte
+    message = read_string(stream_reader, 2)  # bytestring
+    timestamp = bytes_to_int(stream_reader(4))  # Int32
+    car_id = bytes_to_int(stream_reader(4))  # Int32
+    car_info = output.entryListCars[car_id]
+
+    # Count accidents
+    if 4 == event_type != car_info.eventType:
+        car_info.accidents += 1
+
+    car_info.eventType = event_type
+    car_info.eventMessage = message
+    car_info.eventTimestamp = timestamp
+
+
 # Parse data
 def parse_udp_stream(response: bytes, output: UDPBroadcastOutput) -> int:
     """Parse ACC UDP data stream, return message type that matches InboundMessageTypes"""
@@ -529,6 +586,8 @@ def parse_udp_stream(response: bytes, output: UDPBroadcastOutput) -> int:
                 read_entry_list_car(stream_reader, output.entryList)
             elif message_type == 4:  # InboundMessageTypes.ENTRY_LIST
                 read_entry_list(stream_reader, output.entryList)
+            elif message_type == 7:  # InboundMessageTypes.BROADCASTING_EVENT
+                read_car_event(stream_reader, output.entryList)
             elif message_type == 5:  # InboundMessageTypes.TRACK_DATA
                 read_track_data(stream_reader, output.trackData)
             elif message_type == 1:  # InboundMessageTypes.REGISTRATION_RESULT
