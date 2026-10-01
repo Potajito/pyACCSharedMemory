@@ -9,6 +9,7 @@ from __future__ import annotations
 import ctypes
 import io
 import logging
+import math
 import os
 import socket
 import struct
@@ -458,6 +459,12 @@ def read_realtime_car_update(stream_reader: Callable[[int], bytes], output: UDPE
     driver_index = bytes_to_int(stream_reader(2))  # UInt16
     driver_count = bytes_to_int(stream_reader(1))  # byte
     car_info = output.entryListCars[car_id]
+
+    last_world_pos_x = car_info.worldPosX
+    last_world_pos_y = car_info.worldPosY
+    last_completed_laps = car_info.completedLaps
+    last_lap_invalid = car_info.currentLap.isInvalid
+
     # Update realtime car info
     car_info.carId = car_id
     car_info.driverIndex = driver_index
@@ -466,46 +473,49 @@ def read_realtime_car_update(stream_reader: Callable[[int], bytes], output: UDPE
     car_info.worldPosX = bytes_to_float(stream_reader(4))  # float
     car_info.worldPosY = bytes_to_float(stream_reader(4))  # float
     car_info.yaw = bytes_to_float(stream_reader(4))  # float
-
-    # Count pit stops
-    car_location = bytes_to_int(stream_reader(1))  # byte
-    car_speedKmh = bytes_to_int(stream_reader(2))  # UInt16
-    if 2 != car_location:
-        car_info.lastPitState = car_location
-    elif 1 > car_speedKmh and car_location != car_info.lastPitState != 0:
-        car_info.pitStops += 1
-        car_info.lastPitState = car_location
-
-    car_info.carLocation = car_location
-    car_info.speedKmh = car_speedKmh
+    car_info.carLocation = bytes_to_int(stream_reader(1))  # byte
+    car_info.speedKmh = bytes_to_int(stream_reader(2))  # UInt16
     car_info.position = bytes_to_int(stream_reader(2))  # UInt16
     car_info.cupPosition = bytes_to_int(stream_reader(2))  # UInt16
     car_info.trackPosition = bytes_to_int(stream_reader(2))  # UInt16
     car_info.splinePosition = bytes_to_float(stream_reader(4))  # float
-    completed_laps = bytes_to_int(stream_reader(2))  # UInt16
+    car_info.completedLaps = bytes_to_int(stream_reader(2))  # UInt16
     car_info.deltaBest = bytes_to_int(stream_reader(4))  # Int32
+    car_info.inPitLane = (car_info.carLocation == 2)
 
-    lap_invalid = car_info.currentLap.isInvalid
     read_lap_info(stream_reader, car_info.bestSessionLap)
     read_lap_info(stream_reader, car_info.lastLap)
     read_lap_info(stream_reader, car_info.currentLap)
 
-    car_info.inPitLane = (car_location == 2)
-    car_info.inGarage = (car_location == 2 and car_speedKmh <= 0 and car_info.currentLap.lapType != 2)
+    # Count pit stops
+    if not car_info.inPitLane:
+        car_info.lastPitState = car_info.carLocation
+    elif 1 > car_info.speedKmh and car_info.carLocation != car_info.lastPitState != 0:
+        car_info.pitStops += 1
+        car_info.lastPitState = car_info.carLocation
+
+    # Pit & garage state check
+    if car_info.inGarage:
+        if car_info.gear >= 1 < car_info.speedKmh:
+            car_info.inGarage = False
+    elif car_info.inPitLane and math.dist(
+        (last_world_pos_x, last_world_pos_y), (car_info.worldPosX, car_info.worldPosY)
+    ) > 20:  # detect vehicle teleport distance (meters)
+        car_info.inGarage = True
 
     # Finish check
     if session_ended:
         # check if leader finished final lap
-        if not output.leaderFinished and car_info.position == 1 and completed_laps - car_info.completedLaps == 1:
-            output.leaderFinished = True
-            car_info.finished = True
+        if not output.leaderFinished:
+            if car_info.position == 1 and car_info.completedLaps - last_completed_laps == 1:
+                output.leaderFinished = True
+                car_info.finished = True
         # Check if other driver finished after leader crossed line
-        if not car_info.finished and completed_laps - car_info.completedLaps == 1:
+        elif not car_info.finished and car_info.completedLaps - last_completed_laps == 1:
             car_info.finished = True
-    car_info.completedLaps = completed_laps
 
     # Count track cuts
-    if lap_invalid != car_info.currentLap.isInvalid == True:
+    if last_lap_invalid != car_info.currentLap.isInvalid == True:
         car_info.trackCuts += 1
 
     # Check if entry list outdated
