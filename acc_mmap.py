@@ -129,7 +129,6 @@ class MMapControl:
         if (
             self.data.packetId != realtime.packetId
             and realtime.activeCars <= ACCConstants.MAX_MAPPED_VEHICLES
-            and realtime.tyreCompound
         ):
             self._buffer[:] = self._mmap_buffer
 
