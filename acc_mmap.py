@@ -41,8 +41,6 @@ class MMapControl:
 
     __slots__ = (
         "_buffer",
-        "_is_physics_file",
-        "_is_static_file",
         "_mmap_buffer",
         "_mmap_name",
         "_realtime",
@@ -58,8 +56,6 @@ class MMapControl:
             mmap_name: mmap filename.
             data_struct: ctypes data structure, ex. acc_data.SharedMemoryEvent.
         """
-        self._is_physics_file = (mmap_name == ACCConstants.MM_PHYSICS_FILE_NAME)
-        self._is_static_file = (mmap_name == ACCConstants.MM_STATIC_FILE_NAME)
         self._buffer = bytearray()
         self._mmap_buffer = None
         self._mmap_name = mmap_name
