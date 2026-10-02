@@ -89,7 +89,14 @@ class MMapControl:
             self._buffer[:] = self._mmap_buffer
             self._realtime = self._struct.from_buffer(self._mmap_buffer)
             self.data = self._struct.from_buffer(self._buffer)
-            self.update = self.__buffer_copy
+            if self._mmap_name == ACCConstants.MM_PHYSICS_FILE_NAME:
+                self.update = self.__buffer_physics
+            elif self._mmap_name == ACCConstants.MM_GRAPHICS_FILE_NAME:
+                self.update = self.__buffer_graphics
+            elif self._mmap_name == ACCConstants.MM_STATIC_FILE_NAME:
+                self.update = self.__buffer_static
+            else:
+                self.update = self.__buffer_share
 
         mode = "Direct" if access_mode else "Copy"
         logger.info("sharedmemory: ACTIVE: %s (%s Access)", self._mmap_name, mode)
@@ -111,13 +118,32 @@ class MMapControl:
     def __buffer_share(self) -> None:
         """Share buffer access, may result data desync"""
 
-    def __buffer_copy(self) -> None:
-        """Copy buffer access, helps avoid data desync"""
-        # Game resets physics data when paused, check max RPM before update
-        if self._is_physics_file and self._realtime.currentMaxRPM == 0:
+    def __buffer_physics(self) -> None:
+        """Copy buffer access - physics, helps avoid data desync"""
+        # Game resets physics data to 0 when paused
+        if self._realtime.currentMaxRPM == 0:  # check max RPM before update
+            self.data.packetId = self._realtime.packetId  # keep packetId synced
             self.data.currentMaxRPM = 0
-            return
-        # Skip if packetId stopped updating
-        if not self._is_static_file and self.data.packetId == self._realtime.packetId:
-            return
-        self._buffer[:] = self._mmap_buffer
+        elif self.data.packetId != self._realtime.packetId:
+            self._buffer[:] = self._mmap_buffer
+
+    def __buffer_graphics(self) -> None:
+        """Copy buffer access - graphics, helps avoid data desync"""
+        realtime = self._realtime
+        if (
+            self.data.packetId != realtime.packetId
+            and realtime.activeCars <= ACCConstants.MAX_MAPPED_VEHICLES
+            and realtime.tyreCompound
+        ):
+            self._buffer[:] = self._mmap_buffer
+
+    def __buffer_static(self) -> None:
+        """Copy buffer access - static, helps avoid data desync"""
+        realtime = self._realtime
+        if (
+            realtime.smVersion
+            and realtime.carModel
+            and realtime.trackName
+            and realtime.wetTyresName
+        ):
+            self._buffer[:] = self._mmap_buffer

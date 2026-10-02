@@ -68,16 +68,16 @@ class ACCPhysics(ctypes.Structure):
         tyreCoreTemp: Tyre rubber core temperature (Celsius) [FL, FR, RL, RR]
         camberAngle: (unused) Wheels camber angle in radians [FL, FR, RL, RR]
         suspensionTravel: Suspension travel (meters) [FL, FR, RL, RR]
-        drs: (unused) DRS on
-        tc: TC in action
+        drsActive: (unused) DRS on
+        tcActive: is TC active
         heading: Car yaw orientation
         pitch: Car pitch orientation
         roll: Car roll orientation
         cgHeight: (unused) Centre of gravity height
-        carDamage: Car damage: front 0, rear 1, left 2, right 3, centre 4
+        carDamage: Car damage: front 0, rear 1, left 2, right 3, centre 4 (total)
         numberOfTyresOut: (unused) Number of tyres out of track
         pitLimiterOn: Pit limiter is on
-        abs: ABS in action
+        absActive: is ABS active
         kersCharge: Not used in ACC
         kersInput: Not used in ACC
         autoShifterOn: Automatic transmission on
@@ -99,7 +99,7 @@ class ACCPhysics(ctypes.Structure):
         drsAvailable: Not used in ACC
         drsEnabled: Not used in ACC
         brakeTemp: Brake discs temperatures (Celsius)
-        clutch: Clutch pedal input value (from -0 to 1.0)
+        clutch: Clutch pedal input value (from 1.0=min to -0=max)
         tyreTempI: Not shown in ACC (Celsius)
         tyreTempM: Not shown in ACC (Celsius)
         tyreTempO: Not shown in ACC (Celsius)
@@ -157,8 +157,8 @@ class ACCPhysics(ctypes.Structure):
     tyreCoreTemp: list[float] = _t(ctypes.c_float * 4)
     camberAngle: list[float] = _t(ctypes.c_float * 4)
     suspensionTravel: list[float] = _t(ctypes.c_float * 4)
-    drs: float = _t(ctypes.c_float)
-    tc: float = _t(ctypes.c_float)
+    drsActive: float = _t(ctypes.c_float)
+    tcActive: float = _t(ctypes.c_float)
     heading: float = _t(ctypes.c_float)
     pitch: float = _t(ctypes.c_float)
     roll: float = _t(ctypes.c_float)
@@ -166,7 +166,7 @@ class ACCPhysics(ctypes.Structure):
     carDamage: list[float] = _t(ctypes.c_float * 5)
     numberOfTyresOut: int = _t(ctypes.c_int)
     pitLimiterOn: int = _t(ctypes.c_int)
-    abs: float = _t(ctypes.c_float)
+    absActive: float = _t(ctypes.c_float)
     kersCharge: float = _t(ctypes.c_float)
     kersInput: float = _t(ctypes.c_float)
     autoShifterOn: int = _t(ctypes.c_int)
@@ -239,16 +239,16 @@ class ACCGraphics(ctypes.Structure):
         split: Last split time in wide character
         completedLaps: Number of completed laps
         position: Current player position
-        iCurrentTime: Current lap time in milliseconds
-        iLastTime: Last lap time in milliseconds
-        iBestTime: Best lap time in milliseconds
-        sessionTimeLeft: Session time left in milliseconds
+        iCurrentTime: Current lap time (ms)
+        iLastTime: Last lap time (ms)
+        iBestTime: Best lap time (ms)
+        sessionTimeLeft: Session time left (ms)
         distanceTraveled: Distance travelled in the current stint
         isInPit: Car is in pit stall (stopped for service/penalty)
         currentSectorIndex: Current track sector
-        lastSectorTime: Last sector time in milliseconds
-        numberOfLaps: Number of completed laps
-        tyreCompound: Tyre compound used
+        lastSectorTime: Last sector time (ms)
+        numberOfLaps: (unused) Number of completed laps
+        tyreCompound: Tyre compound name
         replayTimeMultiplier: Not used in ACC
         normalizedCarPosition: Car position on track spline (0.0 start to 1.0 finish)
         activeCars: Number of cars on track
@@ -261,16 +261,16 @@ class ACCGraphics(ctypes.Structure):
         idealLineOn: Ideal line on
         isInPitLane: Car is in pit lane
         surfaceGrip: Ideal line friction coefficient
-        mandatoryPitDone: Mandatory pit is completed
+        mandatoryPitDone: Number of mandatory pit completed
         windSpeed: Wind speed in km/h
         windDirection: Wind direction in degrees
         isSetupMenuVisible: Car is working on setup
         mainDisplayIndex: Current car main display index, see Appendix 1
         secondaryDisplyIndex: Current car secondary display index
-        TC: Traction control level
-        TCCUT: Traction control cut level
+        tcLevel: Traction control level
+        tcCutLevel: Traction control cut level (for some car, this is TC slip level)
         engineMap: Current engine map
-        ABS: ABS level
+        absLevel: ABS level
         fuelXLap: Average fuel consumed per lap in liters
         rainLights: Rain lights on
         flashingLights: Flashing lights on
@@ -283,15 +283,15 @@ class ACCGraphics(ctypes.Structure):
         sessionIndex: Session index
         usedFuel: Used fuel since last time refueling
         deltaLapTime: Delta time in wide character
-        iDeltaLapTime: Delta time time in milliseconds
+        iDeltaLapTime: Delta time time (ms)
         estimatedLapTime: Estimated lap time in wide character
-        iEstimatedLapTime: Estimated lap time in milliseconds
+        iEstimatedLapTime: Estimated lap time (ms)
         isDeltaPositive: Delta positive (1) or negative (0)
-        iSplit: Last split time in milliseconds
-        isValidLap: Check if Lap is valid for timing
+        iSplit: Last split time (ms)
+        isValidLap: Check if current Lap is valid for timing (doesn't report invalidation in race)
         fuelEstimatedLaps: Laps possible with current fuel level
         trackStatus: Status of track
-        missingMandatoryPits: Mandatory pitstops the player still has to do
+        missingMandatoryPits: Number of mandatory pitstops the player still has to do
         timeOfDay: Time of day in seconds
         directionLightsLeft: Is Blinker left on
         directionLightsRight: Is Blinker right on
@@ -311,12 +311,12 @@ class ACCGraphics(ctypes.Structure):
         mfdTyrePressureRR: Tyre pressure right rear on the MFD
         trackGripStatus: 0=green, 1=fast, 2=optium, 3=greasy, 4=damp, 5=wet, 6=flooded, see enums ACCTrackGripStatus
         rainIntensity: 0=none, 1=drizzle, 2=light rain, 3=medium rain, 4=heavy rain, 5=thunderstorm, see enums ACCRainIntensity
-        rainIntensityIn10min: See enums ACCRainIntensity
-        rainIntensityIn30min: See enums ACCRainIntensity
+        rainIntensityIn10min: 0=no rain, 1=drizzle, 2=light rain, 3=medium rain, 4=heavy rain, 5=thunderstorm, see enums ACCRainIntensity
+        rainIntensityIn30min: 0=no rain, 1=drizzle, 2=light rain, 3=medium rain, 4=heavy rain, 5=thunderstorm, see enums ACCRainIntensity
         currentTyreSet: Tyre Set currently in use
         strategyTyreSet: Next Tyre set per strategy
-        gapAhead: Distance in ms to car in front
-        gapBehind: Distance in ms to car behind
+        gapAhead: (unused) Distance in ms to car in front
+        gapBehind: (unused) Distance in ms to car behind
     """
 
     __slots__ = ()
@@ -358,10 +358,10 @@ class ACCGraphics(ctypes.Structure):
     isSetupMenuVisible: int = _t(ctypes.c_int)
     mainDisplayIndex: int = _t(ctypes.c_int)
     secondaryDisplyIndex: int = _t(ctypes.c_int)
-    TC: int = _t(ctypes.c_int)
-    TCCUT: int = _t(ctypes.c_int)
+    tcLevel: int = _t(ctypes.c_int)
+    tcCutLevel: int = _t(ctypes.c_int)
     engineMap: int = _t(ctypes.c_int)
-    ABS: int = _t(ctypes.c_int)
+    absLevel: int = _t(ctypes.c_int)
     fuelXLap: float = _t(ctypes.c_float)
     rainLights: int = _t(ctypes.c_int)
     flashingLights: int = _t(ctypes.c_int)
@@ -418,8 +418,8 @@ class ACCStatic(ctypes.Structure):
         smVersion: Shared memory version
         acVersion: Assetto Corsa version
         numberOfSessions: Number of sessions
-        numberOfCars: Number of cars
-        carModel: Player car model see Appendix 2
+        numberOfCars: Number of total cars
+        carModel: Player car model (unformatted), see Appendix 2
         trackName: Track name (unformatted)
         playerName: Player name (first name)
         playerSurname: Player surname (last name)
@@ -455,8 +455,8 @@ class ACCStatic(ctypes.Structure):
         hasExtraLap: Not used in ACC
         carSkin: Not used in ACC
         reversedGridPositions: Not used in ACC
-        PitWindowStart: Pit window opening time
-        PitWindowEnd: Pit windows closing time
+        PitWindowStart: Pit window opening time (ms) since 0 second. Note, pit window is unavailable for the session if PitWindowStart greater than PitWindowEnd.
+        PitWindowEnd: Pit windows closing time (ms) since 0 second.
         isOnline: If is a multiplayer session
         dryTyresName: Name of the dry tyres
         wetTyresName: Name of the wet tyres
