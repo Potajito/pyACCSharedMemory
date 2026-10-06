@@ -39,7 +39,19 @@ def enum_map(reference: Iterable[enum.Enum], default: str = "Unknown") -> Callab
     return lambda index: func(index, default)
 
 
-def dict_map(data: dict, default: str = "Unknown") -> Callable[[int], str]:
+def map_str_to_str(data: dict, default: str = "Unknown") -> Callable[[str], str]:
+    """Generate lookup mapping from dict (class)"""
+    func = data.get
+    return lambda index: func(index, default)
+
+
+def map_str_to_float(data: dict, default: float = 0.0) -> Callable[[str], float]:
+    """Generate lookup mapping from dict (class)"""
+    func = data.get
+    return lambda index: func(index, default)
+
+
+def map_int_to_str(data: dict, default: str = "Unknown") -> Callable[[int], str]:
     """Generate lookup mapping from dict (class)"""
     func = data.get
     return lambda index: func(index, default)

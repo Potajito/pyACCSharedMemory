@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import enum
 
-from ._common import dict_map, enum_map
+from ._common import enum_map, map_int_to_str, map_str_to_float, map_str_to_str
 
 
 # Sharedmemory API Enum
@@ -279,7 +279,7 @@ class NationalityEnum(enum.Enum):
 
 
 # Reference map
-ACC_TRACK_NAME = dict_map({  # Added year suffix according to release date
+ACC_TRACK_NAME = map_str_to_str({  # Added year suffix according to release date
     # Base
     "Barcelona": "Circuit de Barcelona-Catalunya",
     "brands_hatch": "Brands Hatch Circuit",
@@ -315,7 +315,7 @@ ACC_TRACK_NAME = dict_map({  # Added year suffix according to release date
     "nurburgring_24h": "24H Nürburgring",
 }, default="")
 
-ACC_TRACK_YEAR = dict_map({  # year according to track's release date
+ACC_TRACK_YEAR = map_str_to_str({  # year according to track's release date
     # Base
     "Barcelona": "2018",
     "brands_hatch": "2018",
@@ -351,7 +351,7 @@ ACC_TRACK_YEAR = dict_map({  # year according to track's release date
     "nurburgring_24h": "2024",
 }, default="")
 
-ACC_TRACK_LENGTH = dict_map({
+ACC_TRACK_LENGTH = map_str_to_float({
     # Base
     "Barcelona": 4655.0,
     "brands_hatch": 3908.0,
@@ -385,9 +385,9 @@ ACC_TRACK_LENGTH = dict_map({
     "red_bull_ring": 4318.0,
     # 24H Nurburgring Pack
     "nurburgring_24h": 25300.0,
-}, default=0)
+}, default=0.0)
 
-ACC_CAR_MODEL = dict_map({
+ACC_CAR_MODEL = map_str_to_str({
     # GT3 - 2018
     "amr_v12_vantage_gt3": "Aston Martin Vantage V12 GT3 2013",
     "audi_r8_lms": "Audi R8 LMS 2015",
@@ -453,7 +453,7 @@ ACC_CAR_MODEL = dict_map({
     "porsche_991_gt2_rs_mr": "Porsche 991 II GT2 RS CS Evo 2023",
 }, default="")
 
-ACC_CAR_MODEL_ID = dict_map({  # only used by UDP API
+ACC_CAR_MODEL_ID = map_int_to_str({  # only used by UDP API
     # GT3 - 2018
     12: "amr_v12_vantage_gt3",
     3: "audi_r8_lms",
@@ -519,7 +519,7 @@ ACC_CAR_MODEL_ID = dict_map({  # only used by UDP API
     85: "porsche_991_gt2_rs_mr",
 }, default="")
 
-ACC_CAR_CLASS = dict_map({  # according to in-game class name
+ACC_CAR_CLASS = map_str_to_str({  # according to in-game class name
     # GT3 - 2018
     "amr_v12_vantage_gt3": "GT3",
     "audi_r8_lms": "GT3",
@@ -583,9 +583,9 @@ ACC_CAR_CLASS = dict_map({  # according to in-game class name
     "mercedes_amg_gt2": "GT2",
     "porsche_935": "GT2",
     "porsche_991_gt2_rs_mr": "GT2",
-}, default="Unknown")
+}, default="NONE")
 
-ACC_BRAKEBIAS_OFFSET = dict_map({  # 1 offset = 0.2% bias
+ACC_BRAKEBIAS_OFFSET = map_str_to_float({  # 1 offset = 0.2% bias
     # GT3 - 2018
     "amr_v12_vantage_gt3": -7,
     "audi_r8_lms": -14,
@@ -651,7 +651,7 @@ ACC_BRAKEBIAS_OFFSET = dict_map({  # 1 offset = 0.2% bias
     "porsche_991_gt2_rs_mr": -5,
 }, default=0)
 
-ACC_MAX_STEERING_RANGE = dict_map({  # verified via motec data
+ACC_MAX_STEERING_RANGE = map_str_to_float({  # verified via motec data
     # GT3 - 2018
     "amr_v12_vantage_gt3": 320 * 2,
     "audi_r8_lms": 360 * 2,
