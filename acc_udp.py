@@ -227,8 +227,6 @@ class UDPRegistrationResult(ctypes.Structure):
     Attributes:
         connectionId: connection ID
         connectionSuccess: whether connection success
-        host: UDP host name
-        port: UDP port number
         isReadOnly: is read only connection
         errorMessage: error message
     """
@@ -237,8 +235,6 @@ class UDPRegistrationResult(ctypes.Structure):
 
     connectionId: int = _t(ctypes.c_int)
     connectionSuccess: bool = _t(ctypes.c_bool)
-    hostUDP: str = _t(ctypes.c_wchar * 32)
-    portUDP: int = _t(ctypes.c_int)
     isReadOnly: bool = _t(ctypes.c_bool)
     errorMessage: bytes = _t(ctypes.c_char * 64)
 
@@ -645,8 +641,6 @@ def acc_udp_connect(
         connection_timeout: UDP connection timeout, default 60 seconds.
         blocking: set blocking or non-blocking mode.
     """
-    udp_output.registration.hostUDP = udp_host
-    udp_output.registration.portUDP = udp_port
     server_address = (udp_host, udp_port)
     connection_id = -999
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
