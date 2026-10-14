@@ -15,17 +15,29 @@ from __future__ import annotations
 import ctypes
 import mmap
 import os
+import sys
 
 from ._common import _t, typedstruct
+
+
+def _set_prefix(name: str) -> str:
+    """Set mmap file name prefix
+
+    Windows: named file mapping in local namespace, requires "Local\\" prefix.
+    Linux: file in /dev/shm/ (provided by Wine/Proton bridge), has no prefix.
+    """
+    if sys.platform == "win32":
+        return "Local\\" + name
+    return name
 
 
 # Constants
 class ACCConstants:
     """ACC constants"""
 
-    MM_PHYSICS_FILE_NAME = "Local\\acpmf_physics"
-    MM_GRAPHICS_FILE_NAME = "Local\\acpmf_graphics"
-    MM_STATIC_FILE_NAME = "Local\\acpmf_static"
+    MM_PHYSICS_FILE_NAME = _set_prefix("acpmf_physics")
+    MM_GRAPHICS_FILE_NAME = _set_prefix("acpmf_graphics")
+    MM_STATIC_FILE_NAME = _set_prefix("acpmf_static")
 
     MAX_MAPPED_VEHICLES: int = 60
     INVALID_CAR_INDEX: int = -1
