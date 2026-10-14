@@ -192,7 +192,7 @@ def verify_data(info: acc_data.SimInfo):
 if __name__ == "__main__":
     compare_struct_size()
 
-    info = acc_data.SimInfo()
+    info = acc_data.SimInfo(mmap_prefix="Local\\")
 
     player_index = info.ACCGfx.playerCarID
     selected_player_index = player_index

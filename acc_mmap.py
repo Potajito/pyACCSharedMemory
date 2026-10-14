@@ -15,21 +15,21 @@ from .acc_data import ACCConstants
 logger = logging.getLogger(get_root_logger_name())
 
 
-def platform_mmap(name: str, size: int) -> mmap.mmap:
+def platform_mmap(name: str, size: int, prefix: str = "") -> mmap.mmap:
     """Platform memory mapping"""
     if sys.platform == "win32":
-        return windows_mmap(name, size)
-    return linux_mmap(name, size)
+        return windows_mmap(name, size, "Local\\")
+    return linux_mmap(name, size, prefix)
 
 
-def windows_mmap(name: str, size: int) -> mmap.mmap:
+def windows_mmap(name: str, size: int, prefix: str) -> mmap.mmap:
     """Windows mmap"""
-    return mmap.mmap(-1, size, name)
+    return mmap.mmap(-1, size, f"{prefix}{name}")
 
 
-def linux_mmap(name: str, size: int) -> mmap.mmap | None:
+def linux_mmap(name: str, size: int, prefix: str) -> mmap.mmap | None:
     """Linux mmap - read data from '/dev/shm/filename' if available"""
-    with open("/dev/shm/" + name, "a+b") as file:
+    with open(f"/dev/shm/{prefix}{name}", "a+b") as file:
         stream_pos = file.tell()
         if stream_pos == 0:  # file is empty
             file.write(b"\0" * size)
@@ -74,15 +74,17 @@ class MMapControl:
     def __del__(self):
         logger.info("sharedmemory: GC: MMap %s", self._mmap_name)
 
-    def create(self, access_mode: int = 0) -> None:
+    def create(self, access_mode: int = 0, mmap_prefix: str = "") -> None:
         """Create mmap instance & initial accessible copy
 
         Args:
             access_mode: 0 = copy access, 1 = direct access.
+            mmap_prefix: mmap name prefix to be appended to base name; always point to 'Local\\' on windows.
         """
         self._mmap_buffer = platform_mmap(
             name=self._mmap_name,
             size=ctypes.sizeof(self._struct),
+            prefix=mmap_prefix,
         )
 
         if access_mode:

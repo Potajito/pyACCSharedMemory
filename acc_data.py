@@ -15,29 +15,21 @@ from __future__ import annotations
 import ctypes
 import mmap
 import os
-import sys
 
 from ._common import _t, typedstruct
 
 
-def _set_prefix(name: str) -> str:
-    """Set mmap file name prefix
-
-    Windows: named file mapping in local namespace, requires "Local\\" prefix.
-    Linux: file in /dev/shm/ (provided by Wine/Proton bridge), has no prefix.
-    """
-    if sys.platform == "win32":
-        return "Local\\" + name
-    return name
-
-
 # Constants
 class ACCConstants:
-    """ACC constants"""
+    """ACC constants
 
-    MM_PHYSICS_FILE_NAME = _set_prefix("acpmf_physics")
-    MM_GRAPHICS_FILE_NAME = _set_prefix("acpmf_graphics")
-    MM_STATIC_FILE_NAME = _set_prefix("acpmf_static")
+    Note, manually append 'Local\\' prefix to mmap file name on windows,
+    or use 'MMapControl' to set prefix.
+    """
+
+    MM_PHYSICS_FILE_NAME = "acpmf_physics"
+    MM_GRAPHICS_FILE_NAME = "acpmf_graphics"
+    MM_STATIC_FILE_NAME = "acpmf_static"
 
     MAX_MAPPED_VEHICLES: int = 60
     INVALID_CAR_INDEX: int = -1
@@ -527,19 +519,19 @@ class ACCStatic(ctypes.Structure):
 class SimInfo:
     """Simulation info from shared memory"""
 
-    def __init__(self):
+    def __init__(self, mmap_prefix: str = "Local\\"):
         self._acc_phys = mmap.mmap(
-            0, ctypes.sizeof(ACCPhysics), ACCConstants.MM_PHYSICS_FILE_NAME
+            0, ctypes.sizeof(ACCPhysics), f"{mmap_prefix}{ACCConstants.MM_PHYSICS_FILE_NAME}"
         )
         self.ACCPhys = ACCPhysics.from_buffer(self._acc_phys)
 
         self._acc_gfx = mmap.mmap(
-            0, ctypes.sizeof(ACCGraphics), ACCConstants.MM_GRAPHICS_FILE_NAME
+            0, ctypes.sizeof(ACCGraphics), f"{mmap_prefix}{ACCConstants.MM_GRAPHICS_FILE_NAME}"
         )
         self.ACCGfx = ACCGraphics.from_buffer(self._acc_gfx)
 
         self._acc_stat = mmap.mmap(
-            0, ctypes.sizeof(ACCStatic), ACCConstants.MM_STATIC_FILE_NAME
+            0, ctypes.sizeof(ACCStatic), f"{mmap_prefix}{ACCConstants.MM_STATIC_FILE_NAME}"
         )
         self.ACCStat = ACCStatic.from_buffer(self._acc_stat)
 
