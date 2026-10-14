@@ -18,13 +18,13 @@ logger = logging.getLogger(get_root_logger_name())
 def platform_mmap(name: str, size: int, prefix: str = "") -> mmap.mmap:
     """Platform memory mapping"""
     if sys.platform == "win32":
-        return windows_mmap(name, size, "Local\\")
+        return windows_mmap(name, size)
     return linux_mmap(name, size, prefix)
 
 
-def windows_mmap(name: str, size: int, prefix: str) -> mmap.mmap:
+def windows_mmap(name: str, size: int) -> mmap.mmap:
     """Windows mmap"""
-    return mmap.mmap(-1, size, f"{prefix}{name}")
+    return mmap.mmap(-1, size, f"Local\\{name}")
 
 
 def linux_mmap(name: str, size: int, prefix: str) -> mmap.mmap | None:

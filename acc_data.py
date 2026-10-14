@@ -521,17 +521,23 @@ class SimInfo:
 
     def __init__(self, mmap_prefix: str = "Local\\"):
         self._acc_phys = mmap.mmap(
-            0, ctypes.sizeof(ACCPhysics), f"{mmap_prefix}{ACCConstants.MM_PHYSICS_FILE_NAME}"
+            fileno=0,
+            length=ctypes.sizeof(ACCPhysics),
+            tagname=f"{mmap_prefix}{ACCConstants.MM_PHYSICS_FILE_NAME}",
         )
         self.ACCPhys = ACCPhysics.from_buffer(self._acc_phys)
 
         self._acc_gfx = mmap.mmap(
-            0, ctypes.sizeof(ACCGraphics), f"{mmap_prefix}{ACCConstants.MM_GRAPHICS_FILE_NAME}"
+            fileno=0,
+            length=ctypes.sizeof(ACCGraphics),
+            tagname=f"{mmap_prefix}{ACCConstants.MM_GRAPHICS_FILE_NAME}",
         )
         self.ACCGfx = ACCGraphics.from_buffer(self._acc_gfx)
 
         self._acc_stat = mmap.mmap(
-            0, ctypes.sizeof(ACCStatic), f"{mmap_prefix}{ACCConstants.MM_STATIC_FILE_NAME}"
+            fileno=0,
+            length=ctypes.sizeof(ACCStatic),
+            tagname=f"{mmap_prefix}{ACCConstants.MM_STATIC_FILE_NAME}",
         )
         self.ACCStat = ACCStatic.from_buffer(self._acc_stat)
 
